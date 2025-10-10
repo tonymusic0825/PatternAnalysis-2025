@@ -13,8 +13,10 @@ from torch.utils.data import DataLoader, Dataset
 from PIL import Image
 import os
 import matplotlib.pyplot as plt
+import numpy as np
 
-DEFAULT_PATH = "./data"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_PATH = os.path.join(BASE_DIR, "data")
 CLASS_TO_IDX = {"NC": 0, "AD": 1}
 DEFAULT_IMG_SIZE = 256
 
@@ -69,4 +71,38 @@ def create_dataloader(image_size=DEFAULT_IMG_SIZE, batch_size=64, num_workers=1)
     dataset = ADNIDataset(transform=transform)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, pin_memory=True, num_workers=num_workers, drop_last=True)
 
+    return dataloader, dataset
+
+
+# * OPTION TO RUN SCRIPT TO PRINT USEFUL INFO + SANITY CHECK
+def denorm(x):
+    """Denorms the [-1, 1] tensor to [0, 1] for plotting"""
+    x = (x * 0.5) + 0.5
+    x = x.clamp(0, 1).squeeze(0)
+
+    return x.detach().cpu().numpy()
+
+if __name__ == "__main__":
+    dataloader, dataset = create_dataloader()
+
+    # ? Print Info
+    n_total = len(dataset)
+    n_nc = sum(1 for _, lbl in dataset.items if lbl == CLASS_TO_IDX["NC"])
+    n_ad = sum(1 for _, lbl in dataset.items if lbl == CLASS_TO_IDX["AD"])
+
+    print("=========== Dataset summary ===========")
+    print(f"Total images: {n_total}")
+    print(f"  NC (label 0): {n_nc}")
+    print(f"  AD (label 1): {n_ad}")
+
+    # ? Plot
+    imgs, labels = next(iter(dataloader))
+    print("Batch tensor shape:", tuple(imgs.shape))
+    print("First 16 Batch labels:", labels.tolist()[:16], "...")
+
+    plt.figure()
+    plt.title(f"Sample 0  (label={labels[0].item()}  {'NC' if labels[0].item()==0 else 'AD'})")
+    plt.imshow(denorm(imgs[0]), cmap="gray")
+    plt.axis("off")
+    plt.show()
 
