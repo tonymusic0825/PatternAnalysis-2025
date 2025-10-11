@@ -1,9 +1,6 @@
 """
 Heavily Inspired from the following sources:
 https://blog.paperspace.com/implementation-stylegan2-from-scratch/
-A Style-Based Generator Architecture for Generative Adversarial Networks https://arxiv.org/pdf/1812.04948
-Analyzing and Improving the Image Quality of StyleGAN https://arxiv.org/pdf/1912.04958
-StyleGan2 official pytorch implementation https://github.com/NVlabs/stylegan2-ada-pytorch
 """
 
 import torch
@@ -18,6 +15,8 @@ class EqualizedWeight(nn.Module):
 
     The weight tensor is scaled by a constant 'c' derived from the 'fan-in'
     of the layer, which helps maintain signal variance during training.
+
+    REF: https://blog.paperspace.com/implementation-stylegan2-from-scratch/ 
     """
     def __init__(self, shape):
         super().__init__()
@@ -38,6 +37,8 @@ class EqualizedLinear(nn.Module):
 
     This module replaces nn.Linear to apply the StyleGAN-specific
     Weight Equalization technique.
+
+    REF: https://blog.paperspace.com/implementation-stylegan2-from-scratch/
     """
     def __init__(self, in_c, out_c, bias = 0.0):
         super().__init__()
@@ -49,7 +50,6 @@ class EqualizedLinear(nn.Module):
         self.bias = nn.Parameter(torch.ones(out_c) * bias)
 
     def forward(self, x: torch.Tensor):
-        # self.weight() returns the scaled weight tensor
         return F.linear(x, self.weight(), bias=self.bias)
 
 class EqualizedConv2d(nn.Module):
@@ -58,6 +58,8 @@ class EqualizedConv2d(nn.Module):
 
     This module replaces nn.Conv2d to apply the StyleGAN-specific
     Weight Equalization technique.
+
+    REF: https://blog.paperspace.com/implementation-stylegan2-from-scratch/
     """
     def __init__(self, in_c, out_c, k, padding=0):
         super().__init__()
@@ -76,15 +78,16 @@ class Mapping(nn.Module):
     def __init__(self, z_dim=256, w_dim=256, num_layers=8, n_classes=2, y_dim=64):
         super().__init__()
         layers = []
-        y_emb = nn.Embedding(n_classes, y_dim)
+        self.y_emb = nn.Embedding(n_classes, y_dim)
+        in_dim = z_dim + y_dim
 
         # Basically Creates an EqualizedLinear MLP
         for _ in range(num_layers - 1):
-            layers.append(EqualizedLinear(z_dim, w_dim))
+            layers.append(EqualizedLinear(in_dim, w_dim))
             layers.append(nn.ReLU())
-            z_dim = w_dim
+            in_dim = w_dim
         
-        layers.append(EqualizedLinear(z_dim, w_dim))
+        layers.append(EqualizedLinear(in_dim, w_dim))
         self.map = nn.Sequential(*layers)
     
     def forward(self, z, y):
@@ -115,6 +118,8 @@ class NoiseInjection(nn.Module):
 class Conv2dWeightModulate(nn.Module):
     """
     Style modulation + optional demodulation, then grouped conv.
+
+    REF: https://blog.paperspace.com/implementation-stylegan2-from-scratch/ 
     """
     def __init__(self, in_c, out_c, k, demodulate=True, eps=1e-8):
         super().__init__()
@@ -126,24 +131,26 @@ class Conv2dWeightModulate(nn.Module):
     
     def forward(self, x, s):
         B, C, H, W = x.shape
-        w = self.weight()[None, :, :, :, :] # [1, out_c, in_c, k, k]
+        w = self.weight()[None, ...] # [1, out_c, in_c, k, k]
         s = s[:, None, :, None, None]       # [B, 1, in_c, 1, 1]
         w = w * s                           # [B, out_c, in_c, k, k]
 
-        if self.demodulate:
+        if self.demod:
             d = torch.rsqrt((w ** 2).sum((2,3,4), keepdim=True) + self.eps)  # [B, out_c]
             w = w * d 
 
-        x = x.view(1, B * x.size(1), H, W)
-        w = w.view(B * self.out_c, -1, w.size(-2), w.size(-1))
+        x = x.reshape(1, B * x.size(1), H, W)
+        w = w.reshape(B * self.out_c, -1, w.size(-2), w.size(-1))
         y = F.conv2d(x, w, padding=self.padding, groups=B)
-        return y.view(B, self.out_c, H, W)
+        return y.reshape(B, self.out_c, H, W)
 
 class ToRGB(nn.Module):
     """
     This class implements the final output of the generator.
     Takes high channel inputs and maps it to lower (gray-scale) channel output.
     (In the case of ADNI this is just mapping the channel to 1)
+
+    REF: https://blog.paperspace.com/implementation-stylegan2-from-scratch/ 
     """
     def __init__(self, w_dim, in_c, out_c=1):
         super().__init__()
@@ -177,9 +184,6 @@ class StyleBlock(nn.Module):
         x = self.conv(x, s)   
         x = self.noise_inj(x, noise)
 
-        # Add bias
-        x = x + self.bias[None, :, None, None]
-
         return F.leaky_relu(x + self.bias[None, :, None, None], 0.2, inplace=True)
 
 class GenBlock(nn.Module):
@@ -206,18 +210,19 @@ class DiscBlock(nn.Module):
     """
     def __init__(self, in_c, out_c):
         super().__init__()
-        self.res = nn.Sequential(nn.AvgPool2d(kernel_size=2, stride=2), 
-                                      EqualizedConv2d(in_c, out_c, kernel_size=1))
+        self.res = nn.Sequential(
+            nn.AvgPool2d(2),
+            EqualizedConv2d(in_c, out_c, k=1)
+        )
 
         self.block = nn.Sequential(
-            EqualizedConv2d(in_c, in_c, kernel_size=3, padding=1),
+            EqualizedConv2d(in_c, in_c, k=3, padding=1),
             nn.LeakyReLU(0.2, inplace=True),
-            EqualizedConv2d(in_c, out_c, kernel_size=3, padding=1),
+            EqualizedConv2d(in_c, out_c, k=3, padding=1),
             nn.LeakyReLU(0.2, inplace=True)
         )
 
-        self.down_sample = nn.AvgPool2d (kernel_size=2, stride=2)  
-
+        self.down_sample = nn.AvgPool2d(kernel_size=2, stride=2)  
         self.scale = 1 / math.sqrt(2)
 
     def forward(self, x):

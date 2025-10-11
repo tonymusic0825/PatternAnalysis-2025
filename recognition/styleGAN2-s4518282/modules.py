@@ -1,9 +1,6 @@
 """
 Heavily Inspired from the following sources:
 https://blog.paperspace.com/implementation-stylegan2-from-scratch/
-A Style-Based Generator Architecture for Generative Adversarial Networks https://arxiv.org/pdf/1812.04948
-Analyzing and Improving the Image Quality of StyleGAN https://arxiv.org/pdf/1912.04958
-StyleGan2 official pytorch implementation https://github.com/NVlabs/stylegan2-ada-pytorch
 """
 
 
@@ -63,7 +60,7 @@ class Generator(nn.Module):
     def forward(self, z, y, return_w):
         B, device = z.size(0), z.device # For noise
         w_single = self.mapping(z, y) 
-        noise = self.make_noise(B, device)
+        noise = self.get_noise(B, device)
         w = w_single[None, :, :].expand(self.n_blocks, -1, -1)  # [n_blocks,B,W_DIM]
 
         x = self.initial_constant.expand(B, -1, -1, -1)
@@ -74,6 +71,9 @@ class Generator(nn.Module):
             x = F.interpolate(x, scale_factor=2, mode="bilinear")
             x, rgb_new = self.blocks[i - 1](x, w[i], noise[i])
             rgb = F.interpolate(rgb, scale_factor=2, mode="bilinear") + rgb_new
+
+        if return_w:
+            return (torch.tanh(rgb), w_single)
 
         return torch.tanh(rgb)
 
@@ -87,7 +87,7 @@ class Discriminator(nn.Module):
 
         feats = [min(max_features, n_features * (2 ** i)) for i in range(log_res - 1)]
         self.from_rgb = nn.Sequential(
-            EqualizedConv2d(3, n_features, k=1, padding=0),
+            EqualizedConv2d(1, n_features, k=1, padding=0),
             nn.LeakyReLU(0.2, True),
         )
 
@@ -96,8 +96,8 @@ class Discriminator(nn.Module):
 
         self.mbsd = MBStdDev()
         final_c = feats[-1] + 1
-        self.conv = EqualizedConv2d(final_c, final_c, k=3)
-        self.final = EqualizedLinear(2 * 2 * final_c, 1)
+        self.conv = EqualizedConv2d(final_c, final_c, k=3, padding=1)
+        self.final = EqualizedLinear(4 * 4 * final_c, 1)
 
         # produce a compact feature h, then rf -> logit
         # self.fc = EqualizedLinear(2 * 2 * final_c, 64)
@@ -106,16 +106,40 @@ class Discriminator(nn.Module):
         # projection term (same dimensionality as h)
         # self.y_emb = nn.Embedding(n_classes, 64)
 
-    def forward(self, x, y):
+    def forward(self, x):
         x = self.from_rgb(x)
         x = self.blocks(x)
         x = self.mbsd(x)
 
         x = self.conv(x)
         x = x.reshape(x.shape[0], -1)
-        return self.out(x)
+        return self.final(x)
 
+# * Sanity check Testing OPTIONAL
+if __name__ == "__main__":
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"[sanity] using device = {device}")
 
+    B = 7
+    z_dim = 256
+    img_ch = 1
+    n_classes = 2
+
+    G = Generator(z_dim=z_dim, w_dim=256, y_dim=64, out_c=img_ch).to(device).train()
+    D = Discriminator().to(device).train()
+
+    x_real = torch.randn(B, img_ch, 256, 256, device=device)
+    y = torch.randint(0, n_classes, (B,), device=device)
+
+    d_real = D(x_real)   # y accepted, ignored
+    print("[sanity] D(real) logit:", tuple(d_real.shape), "  h:")
+
+    z = torch.randn(B, z_dim, device=device)
+    x_fake, w = G(z, y, return_w=True)
+    print("[sanity] G(z,y) img:", tuple(x_fake.shape), "  w:", tuple(w.shape))
+
+    d_fake = D(x_fake.detach())
+    print("[sanity] D(fake) logit:", tuple(d_fake.shape))
 
 
 
@@ -219,30 +243,3 @@ class Discriminator(nn.Module):
 #             return (img, w)
 
 #         return img
-
-# * Sanity check Testing OPTIONAL
-if __name__ == "__main__":
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    print(f"[sanity] using device = {device}")
-
-    B = 7
-    z_dim = 256
-    img_ch = 1
-    n_classes = 2
-
-    G = Generator(z_dim=z_dim, w_dim=256, y_emb_dim=64).to(device).train()
-    D = Discriminator(n_classes=n_classes, img_channels=img_ch).to(device).train()
-    
-    x_real = torch.randn(B, img_ch, 256, 256, device=device)
-    y = torch.randint(0, n_classes, (B,), device=device)
-
-    d_real, h_real = D(x_real, y)
-    print("[sanity] D(real) logit:", tuple(d_real.shape), "  h:", tuple(h_real.shape))
-
-    z = torch.randn(B, z_dim, device=device)
-    out = G(z, y, return_w=True)
-    x_fake, w = out
-    print("[sanity] G(z,y) img:", tuple(x_fake.shape), "  w:", tuple(w.shape))
-
-    d_fake, _ = D(x_fake.detach(), y)
-    print("[sanity] D(fake) logit:", tuple(d_fake.shape))
