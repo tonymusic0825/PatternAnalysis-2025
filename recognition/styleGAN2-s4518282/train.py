@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
 from torchvision.utils import make_grid, save_image
+from utils import plot_images, plot_loss
 
 from modules import Generator, Discriminator
 from dataset import create_dataloader, CLASS_TO_IDX, denorm
@@ -124,10 +125,18 @@ def train(test=False):
             g_loss.backward()
             opt_g.step()
 
+            # *** Print and Plot
             if epoch == 1:
-                pass
-        
+                z = torch.randn(BATCH_SIZE, 256, device=device)
+                fake_img1 = G(z, 0)
+                fake_img2 = G(z, 1)
+
+                plot_images(fake_img1, fake_img2)
+                plot_loss(d_loss_t, g_loss_t)
+
         if test and epoch == 5:
             break
 
+if __name__ == "__main__":
+    train()
         
