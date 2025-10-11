@@ -219,7 +219,7 @@ def upsample(x):
 class GenBlock(nn.Module):
     """
     This is the core block for the generation model combining all:
-    Affine, (de)mod convolution, toRGB
+    Affine, (de)mod convolution, toRGB and noise injections
     """
     def __init__(self, in_c, out_c, w_dim, is_first=False):
         super().__init__()
