@@ -68,7 +68,10 @@ def d_loss_fn(d_real, d_fake, x_real, y, D, gamma, do_r1):
 # Training Loop ====================================================================================
 G = Generator()
 D = Discriminator()
-dataloader, _ = create_dataloader(batch_size=BATCH_SIZE, num_workers=WORKERS)
+dataloader, _ = create_dataloader(batch_size=BATCH_SIZE, num_workers=1)
+print("DATA LOADER SANITY CHECK")
+print(len(dataloader))
+print(len(next(iter(dataloader))))
 opt_g = optim.Adam(G.parameters(), lr=LR, betas=(BETA1, BETA2), eps=ADAM_EPS)
 opt_d = optim.Adam(D.parameters(), lr=LR, betas=(BETA1, BETA2), eps=ADAM_EPS)
 step = 0
@@ -134,9 +137,11 @@ def train(test=False):
                 plot_images(fake_img1, fake_img2)
                 plot_loss(d_loss_t, g_loss_t)
 
+        print(f"EPOCH{epoch}: D_loss = {d_loss_t[-1]}, G_loss = {g_loss_t[-1]}")
+
         if test and epoch == 5:
             break
 
 if __name__ == "__main__":
-    train()
-        
+    train(True)
+

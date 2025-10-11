@@ -56,7 +56,7 @@ class ADNIDataset(Dataset):
             img = self.transform(img)
         return img, label
 
-def create_dataloader(image_size=DEFAULT_IMG_SIZE, batch_size=64, num_workers=1):
+def create_dataloader(image_size=DEFAULT_IMG_SIZE, batch_size=64, num_workers=1, root=DEFAULT_PATH):
     """
     Creates dataloader for training. 
     """
@@ -68,7 +68,7 @@ def create_dataloader(image_size=DEFAULT_IMG_SIZE, batch_size=64, num_workers=1)
         transforms.Normalize(mean=[0.5], std=[0.5]), # [-1, 1], Nice for GANs...
     ])
 
-    dataset = ADNIDataset(transform=transform)
+    dataset = ADNIDataset(transform=transform, root=root)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, pin_memory=True, num_workers=num_workers, drop_last=True)
 
     return dataloader, dataset
