@@ -1,7 +1,5 @@
 from modules_helper import *
 
-D_CHANNEL = {256:512, 128:512, 64:512, 32:256, 16:128, 8:64, 4:64}
-
 class Disciminator(nn.Module):
     """
     Conditional (projection) discriminator for StyleGAN2
@@ -30,10 +28,10 @@ class Disciminator(nn.Module):
     
     def forward(self, x, y):
         h = self.orig(x)   # [B,512,256,256]
-        h = self.down1(h)  # -> [B,512,128,128]
-        h = self.down2(h)  # -> [B,512, 64, 64]
-        h = self.down3(h)  # -> [B,256, 32, 32]
-        h = self.down4(h)  # -> [B,128, 16, 16]
+        h = self.down1(h)  # -> [B, 512, 128,128]
+        h = self.down2(h)  # -> [B, 512, 64, 64]
+        h = self.down3(h)  # -> [B, 256, 32, 32]
+        h = self.down4(h)  # -> [B, 128, 16, 16]
         h = self.down5(h)  # -> [B, 64,  8,  8]
         h = self.down6(h)  # -> [B, 64,  4,  4]
 
@@ -46,6 +44,8 @@ class Disciminator(nn.Module):
         proj = (h * self.y_emb(y)).sum(dim=1, keepdim=True) 
         logit = rf + proj
         return logit, h
+
+
 
 
         

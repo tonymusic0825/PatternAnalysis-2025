@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import math
 
 # Helper functions =======================================================
 
@@ -86,4 +87,39 @@ class MBStdDev(nn.Module):
         std = std.repeat(g, 1, H, W)  # [B, 1, H, W]
 
         return torch.cat([x, std], dim=1) # [B, 1 + C, H, W]
+
+
+# =========================================================================
+
+# GENERATOR ===============================================================
+
+class Mapping(nn.Module):
+    """
+    MLP that takes the initial noise vector z (default 256 dim) and
+    mapped to w (disentangled vector). Here we also inject the label embedding.
+    """
+    def __init__(self, z_dim=256, w_dim=256, num_layers=8, y_dim=64):
+        super().__init__()
+        layers, dim = [], (z_dim + y_dim)
+
+        # Class embedding
+        self.y_emb = nn.Embedding(2, y_dim)
+
+        # Create MLP
+        for _ in range(num_layers):
+            layers.append(nn.Linear(dim, w_dim))
+            layers.append(nn.LeakyReLU(0.2, inplace=True))
+            dim = w_dim
+        
+        self.mlp = nn.Sequential(*layers)
+
+    def forward(self, z, y):
+        # Spherical normalization of z (as original paper states)
+        z = z / (z.norm(dim=1, keepdim=True) + 1e-8) * math.sqrt(z.shape[1])
+        y_v = self.y_emb(y).to(z.dtype)
+
+        z_con = torch.cat([z, y_v], dim=1)
+
+        return self.mlp(z_con)
+
 
