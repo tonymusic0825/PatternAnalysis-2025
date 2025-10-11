@@ -60,6 +60,11 @@ class Generator(nn.Module):
     def forward(self, z, y, return_w):
         B, device = z.size(0), z.device # For noise
         w_single = self.mapping(z, y) 
+
+        # Enable for PPL Implementation 
+        if return_w:
+            w.single.requires_grad_(True)
+        
         noise = self.get_noise(B, device)
         w = w_single[None, :, :].expand(self.n_blocks, -1, -1)  # [n_blocks,B,W_DIM]
 
@@ -115,6 +120,73 @@ class Discriminator(nn.Module):
         x = x.reshape(x.shape[0], -1)
         return self.final(x)
 
+class PathLengthPenalty(nn.Module):
+    """
+    Perceptual Path Length (PPL) regularization from StyleGAN2.
+
+    Calculates the penalty based on the change in the generated image (x) 
+    relative to a small change in the intermediate latent code (w). 
+    Uses an exponential moving average (EMA) for stability.
+    """
+    def __init__(self, beta):
+        super().__init__()
+
+        self.beta = beta
+        # Steps counter and EMA of the path length 'a' (initialized to 0)
+        self.steps = nn.Parameter(torch.tensor(0.), requires_grad=False)
+        self.exp_sum_a = nn.Parameter(torch.tensor(0.), requires_grad=False)
+
+    def forward(self, w: torch.Tensor, x: torch.Tensor):
+        # NOTE: w must have requires_grad=True
+        device = x.device
+        
+        # Calculate the size of the image to normalize the L2 gradient norm
+        image_size = x.shape[2] * x.shape[3]
+        
+        # 1. Generate random directions vector 'y' (random image-sized tensor)
+        y = torch.randn(x.shape, device=device)
+
+        # 2. Compute the weighted sum (dot product) between the generated image X and random direction Y
+        # Output is a scalar representing the total projection in that direction, normalized by sqrt(image_size)
+        # The sum is across all dimensions except the batch dimension (0).
+        output = (x * y).sum(dim=[1, 2, 3]) / math.sqrt(image_size) 
+
+        # 3. Compute gradients of the output projection w.r.t. the input latent W
+        # This gives us the vector-Jacobian product (vJp), which is the change 
+        # in the projection for a change in w.
+        # This is the 'perceptual path length' derivative.
+        gradients, *_ = torch.autograd.grad(
+            outputs=output,
+            inputs=w,
+            grad_outputs=torch.ones(output.shape, device=device),
+            create_graph=True # IMPORTANT: Must be True to compute the second-order loss (norm^2)
+        )
+
+        # 4. Compute the L2 norm of the gradient vector (w.r.t the W space)
+        # Sum over the style dimensions (dim=1) and take the mean over the sequence dimension (dim=0) 
+        # if w is a sequence, but here w is [B, W_DIM] so we sum over W_DIM (dim=1).
+        # Since w is [B, W_DIM], we sum over dim=1: (gradients ** 2).sum(dim=1).sqrt()
+        norm = (gradients ** 2).sum(dim=1).sqrt() # Shape [B] (one norm value per sample)
+
+        # 5. Update EMA and Calculate Penalty
+        mean = norm.mean().detach() # Mean of the current batch's path lengths
+        
+        # EMA update: exp_sum_a = beta * exp_sum_a + (1 - beta) * mean
+        self.exp_sum_a.mul_(self.beta).add_(mean, alpha=1.0 - self.beta)
+        self.steps.add_(1.)
+
+        # Bias correction for EMA (prevents underestimation early in training)
+        if self.steps > 0:
+            a = self.exp_sum_a / (1.0 - self.beta ** self.steps)
+            # PPL loss: penalize the difference between the current norm and the EMA 'a'
+            loss = torch.mean((norm - a) ** 2)
+        else:
+            # First step, loss is zero (or norm.new_tensor(0))
+            loss = norm.new_tensor(0)
+
+        # The gradients of this loss will flow back through the norm and gradients to update G.
+        return loss
+
 # * Sanity check Testing OPTIONAL
 if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -140,7 +212,6 @@ if __name__ == "__main__":
 
     d_fake = D(x_fake.detach())
     print("[sanity] D(fake) logit:", tuple(d_fake.shape))
-
 
 
 
