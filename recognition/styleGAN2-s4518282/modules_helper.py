@@ -199,12 +199,67 @@ class GenBlock(nn.Module):
         rgb = self.to_rgb(x, w)
         return x, rgb
 
+class DiscBlock(nn.Module):
+    """
+    This is the core block for the discriminative model.
+    Implements two 3x3 convolutions with res connections
+    """
+    def __init__(self, in_c, out_c):
+        super().__init__()
+        self.res = nn.Sequential(nn.AvgPool2d(kernel_size=2, stride=2), 
+                                      EqualizedConv2d(in_c, out_c, kernel_size=1))
 
+        self.block = nn.Sequential(
+            EqualizedConv2d(in_c, in_c, kernel_size=3, padding=1),
+            nn.LeakyReLU(0.2, inplace=True),
+            EqualizedConv2d(in_c, out_c, kernel_size=3, padding=1),
+            nn.LeakyReLU(0.2, inplace=True)
+        )
 
+        self.down_sample = nn.AvgPool2d (kernel_size=2, stride=2)  
 
+        self.scale = 1 / math.sqrt(2)
 
+    def forward(self, x):
+        res = self.res(x)
 
+        x = self.block(x)
+        x = self.down_sample(x)
 
+        return (x + res) * self.scale
+
+class MBStdDev(nn.Module):
+    """
+    StyleGAN Trick: Append a channel with per-group std dev to help Discriminator. 
+    Helps detect similar fakes.
+
+    1)  Calculate Standard Deviation
+
+    2)  Calculate Mean Standard Deviation: 
+
+    3)  Create a New Feature Map
+
+    4)  Concatenation
+    """
+    def __init__(self, group_size=4, eps=1e-8):
+        super().__init__()
+        self.group_size = group_size
+        self.eps = eps
+
+    def forward(self, x):
+        B, C, H, W = x.shape
+        g = min(self.group_size, B)
+
+        # Add fall back just in case
+        if B % g != 0:
+            g = 1
+
+        y = x.view(g, -1, C, H, W)
+        y = y - y.mean(dim=0, keepdim=True)
+        y = torch.sqrt(y.pow(2).mean(dim=0) + self.eps)
+        y = y.mean(dim=(1,2,3), keepdim=True)  
+        y = y.repeat(g, 1, H, W) # [B, 1, H, W]         
+        return torch.cat([x, y], dim=1) # [B, 1 + C, H, W]
 
 
 

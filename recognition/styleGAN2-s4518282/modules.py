@@ -77,6 +77,43 @@ class Generator(nn.Module):
 
         return torch.tanh(rgb)
 
+class Discriminator(nn.Module):
+    """
+    test.py-style D backbone (EqualizedConv2d + residual blocks + MBStdDev),
+    with your *projection* term to keep it conditional.
+    """
+    def __init__(self, log_res=8, n_features=64, max_features=256, n_classes=2):
+        super().__init__()
+
+        feats = [min(max_features, n_features * (2 ** i)) for i in range(log_res - 1)]
+        self.from_rgb = nn.Sequential(
+            EqualizedConv2d(3, n_features, k=1, padding=0),
+            nn.LeakyReLU(0.2, True),
+        )
+
+        n_blocks = len(feats) - 1
+        self.blocks = nn.Sequential(*[DiscBlock(feats[i], feats[i + 1]) for i in range(n_blocks)])
+
+        self.mbsd = MBStdDev()
+        final_c = feats[-1] + 1
+        self.conv = EqualizedConv2d(final_c, final_c, k=3)
+        self.final = EqualizedLinear(2 * 2 * final_c, 1)
+
+        # produce a compact feature h, then rf -> logit
+        # self.fc = EqualizedLinear(2 * 2 * final_c, 64)
+        # self.out = EqualizedLinear(64, 1)
+
+        # projection term (same dimensionality as h)
+        # self.y_emb = nn.Embedding(n_classes, 64)
+
+    def forward(self, x, y):
+        x = self.from_rgb(x)
+        x = self.blocks(x)
+        x = self.mbsd(x)
+
+        x = self.conv(x)
+        x = x.reshape(x.shape[0], -1)
+        return self.out(x)
 
 
 
