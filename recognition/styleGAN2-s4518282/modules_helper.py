@@ -35,14 +35,15 @@ class ResDown(nn.Module):
         self.conv2 = conv3x3(in_c, out_c)
         self.skip = conv1x1(in_c, out_c)
         self.avg = nn.AvgPool2d(2)
+        self.variance_scale = 1.0 / math.sqrt(2) 
     
     def forward(self, x):
         skip = self.avg(self.skip(x))
-        main = self.conv1(x)
-        main = self.conv2(main)
+        main = leaky_relu(self.conv1(x))
+        main = leaky_relu(self.conv2(main))
         main = self.avg(main)
 
-        return main + skip
+        return (main + skip) * self.variance_scale 
 
 class MBStdDev(nn.Module):
     """
@@ -79,6 +80,10 @@ class MBStdDev(nn.Module):
     def forward(self, x):
         B, C, H, W = x.shape
         g = min(self.group_size, B)
+
+        # Add fall back just in case
+        if B % g != 0:
+            g = 1
         
         std = x.view(g, -1, C, H, W)
         std = std - std.mean(dim=0, keepdim=True)
@@ -168,14 +173,14 @@ class ModulatedConv2d(nn.Module):
         w = w * (s + 1.0)
         
         if self.demod:
-            d = torch.rsqrt((w ** 2).sum(dim=[2,3,4]) + self.eps).view(B, self.out_ch, 1, 1, 1)
+            d = torch.rsqrt((w ** 2).sum(dim=[2,3,4]) + self.eps).view(B, self.out_c, 1, 1, 1)
             w = w * d
 
         x = x.view(1, B*C, H, W)
-        w = w.view(B*self.out_ch, self.in_ch, self.k, self.k)
+        w = w.view(B*self.out_c, self.in_c, self.k, self.k)
         y = F.conv2d(x, w, padding=self.k//2, groups=B)
 
-        return y.view(B, self.out_ch, H, W)
+        return y.view(B, self.out_c, H, W)
 
 
 class NoiseInjection(nn.Module):
@@ -191,5 +196,56 @@ class NoiseInjection(nn.Module):
         
         return x + self.weight * noise
 
+class ToRGB(nn.Module):
+    """
+    This class implements the final output of the generator.
+    Takes high channel inputs and maps it to lower (gray-scale) channel output.
+    """
+    def __init__(self, in_c, w_dim, out_c=1):
+        super().__init__()
+        self.affine = StyleAffine(w_dim, in_c)
+        self.conv   = ModulatedConv2d(in_c, out_c, k=1, demod=False)
 
+    def forward(self, x, w):
+        s = self.affine(w)
+        return self.conv(x, s)
+
+def upsample(x):
+    """ 
+    StyleGAN2 uses interpolation instead of deconvolution
+    """
+    return F.interpolate(x, scale_factor=2, mode="bilinear", align_corners=False)
+
+class GenBlock(nn.Module):
+    """
+    This is the core block for the generation model combining all:
+    Affine, (de)mod convolution, toRGB
+    """
+    def __init__(self, in_c, out_c, w_dim, is_first=False):
+        super().__init__()
+        
+        self.is_first = is_first
+        self.affine1 = StyleAffine(w_dim, in_c)
+        self.mod1 = ModulatedConv2d(in_c, out_c, k=3)
+        self.noise1 = NoiseInjection(out_c)
+        self.affine2 = StyleAffine(w_dim, out_c)
+
+        self.mod2 = ModulatedConv2d(out_c, out_c, k=3)
+        self.noise2 = NoiseInjection(out_c)
+
+    def forward(self, x, w):
+        if not self.is_first: 
+            x = upsample(x)
+
+        s1 = self.affine1(w)
+        x = self.mod1(x, s1)
+        x = self.noise1(x)
+        x = leaky_relu(x)
+
+        s2 = self.affine2(w)
+        x = self.mod2(x, s2)
+        x = self.noise2(x)
+        x = leaky_relu(x)
+
+        return x
 
