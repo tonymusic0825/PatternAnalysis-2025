@@ -96,7 +96,8 @@ class MBStdDev(nn.Module):
 class Mapping(nn.Module):
     """
     MLP that takes the initial noise vector z (default 256 dim) and
-    mapped to w (disentangled vector). Here we also inject the label embedding.
+    mapped to w (disentangled vector). Here we also inject the label embedding
+    so that w is 'style-aware'
     """
     def __init__(self, z_dim=256, w_dim=256, num_layers=8, y_dim=64):
         super().__init__()
@@ -121,5 +122,74 @@ class Mapping(nn.Module):
         z_con = torch.cat([z, y_v], dim=1)
 
         return self.mlp(z_con)
+
+class StyleAffine(nn.Module):
+    """
+    These are the 'A' blocks represented within the StyleGAN2 architesture diagram.
+    Just a simple Linear layer to match each (de)mod/conv operations
+    """
+    def __init__(self, w_dim, in_c):
+        super().__init__()
+        self.fc = nn.Linear(w_dim, in_c)
+    
+    def forward(self, w):
+        return self.fc(w)
+
+class ModulatedConv2d(nn.Module):
+    """
+    This class implements both the style application (Modulation) and 
+    the artifact-prevention step (Demodulation) before performing the convolution. 
+    Many implementations allow to turn off 'demod' thus we add this functionality as well.
+    """
+    def __init__(self, in_c, out_c, k=3, demod=True):
+        super().__init__()
+        self.in_c = in_c
+        self.out_c = out_c
+        self.k = k # Kernal Size
+        self.demod = demod
+        self.eps = 1e-8
+
+        # He/Kaiming Initialization
+        self.weight = nn.Parameter(torch.randn(out_c, in_c, k, k) / math.sqrt(in_c * k * k))
+    
+    def forward(self, x, style):
+        B, C, H, W = x.shape
+
+        # ! The following is inspired from ChatGPT:
+        # ChatGPT 5 (2025-10-11, 12:49 PM) 
+        # Prompt: What is an efficient way to perform mod/demod for Conditional StyleGAN2?
+        #         I'm using the He/Kaiming Initialization for stability. 
+        #         Here is my code as reference [Above code] and explain please.
+        # Response: I will provide a full breakdown of the ModulatedConv2d class, explaning the role 
+        #           of each line in implementing the Modulation and Demodulation steps, 
+        #           and the final Grouped Convolution Trick for efficiency
+        w = self.weight[None]
+        s = style.view(B, 1, self.in_c, 1, 1)
+        w = w * (s + 1.0)
+        
+        if self.demod:
+            d = torch.rsqrt((w ** 2).sum(dim=[2,3,4]) + self.eps).view(B, self.out_ch, 1, 1, 1)
+            w = w * d
+
+        x = x.view(1, B*C, H, W)
+        w = w.view(B*self.out_ch, self.in_ch, self.k, self.k)
+        y = F.conv2d(x, w, padding=self.k//2, groups=B)
+
+        return y.view(B, self.out_ch, H, W)
+
+
+class NoiseInjection(nn.Module):
+    """
+    This class implements the noise injection behaviour within the StyleGAN architecture
+    """
+    def __init__(self, ch):
+        super().__init__()
+        self.weight = nn.Parameter(torch.zeros(1, ch, 1, 1))
+
+    def forward(self, x):
+        noise = torch.randn(x.size(0), 1, x.size(2), x.size(3), device=x.device)
+        
+        return x + self.weight * noise
+
 
 
