@@ -70,36 +70,6 @@ class EqualizedConv2d(nn.Module):
     def forward(self, x: torch.Tensor):
         return F.conv2d(x, self.weight(), bias=self.bias, padding=self.padding)
 
-class Mapping(nn.Module):
-    """
-    Mapping network for which given an initial noise vector z and maps to w (disentangled vectors)
-    Additionally, embeds the label (NC, AD) into the w vector
-    """
-    def __init__(self, z_dim=256, w_dim=256, num_layers=8, n_classes=2, y_dim=64):
-        super().__init__()
-        layers = []
-        self.y_emb = nn.Embedding(n_classes, y_dim)
-        in_dim = z_dim + y_dim
-
-        # Basically Creates an EqualizedLinear MLP
-        for _ in range(num_layers - 1):
-            layers.append(EqualizedLinear(in_dim, w_dim))
-            layers.append(nn.ReLU())
-            in_dim = w_dim
-        
-        layers.append(EqualizedLinear(in_dim, w_dim))
-        self.map = nn.Sequential(*layers)
-    
-    def forward(self, z, y):
-        # Pixel Norm
-        z = z / torch.sqrt(torch.mean(z ** 2, dim=1, keepdim=True) + 1e-8)
-        
-        # Embed y and fuse it in
-        ye = self.y_emb(y)
-        h = torch.cat([z, ye], dim=1)
-
-        return self.map(h)
-
 class NoiseInjection(nn.Module):
     """
     Injects learnable, scaled noise into the feature map.
@@ -263,7 +233,8 @@ class MBStdDev(nn.Module):
         y = y - y.mean(dim=0, keepdim=True)
         y = torch.sqrt(y.pow(2).mean(dim=0) + self.eps)
         y = y.mean(dim=(1,2,3), keepdim=True)  
-        y = y.repeat(g, 1, H, W) # [B, 1, H, W]         
+        y = y.repeat(g, 1, H, W) # [B, 1, H, W]      
+           
         return torch.cat([x, y], dim=1) # [B, 1 + C, H, W]
 
 

@@ -1,26 +1,38 @@
 import matplotlib.pyplot as plt
 from dataset import denorm
 import numpy as np
+import torch
 
-def plot_images(img_nc, img_ad):
+def plot_images(gen, z_dim, device):
     """
     Plots the NC and AD generated image from StyleGAN2
 
     Expects still normalized [-1, 1] images from generator
     """
     titles = ["NC (Normal Control)", "AD (Alzheimer's Disease)"]
-    img_nc_np = denorm(img_nc)
-    img_ad_np = denorm(img_ad)
+    labels_to_generate = torch.tensor([0, 1], device=device) 
+    batch_size = 2 
+    gen.eval()
+
+    # Generate images
+    with torch.no_grad():
+        z = torch.randn(batch_size, z_dim, device=device)
+        generated_images = gen(z, labels_to_generate, False)
+
+    gen.train()
+
+    img_nc = denorm(generated_images[0]) # NC image (label 0)
+    img_ad = denorm(generated_images[1]) # AD image (label 1)
 
     fig, axes = plt.subplots(1, 2, figsize=(10, 5))
-    nc_plot = np.squeeze(img_nc_np)
+    nc_plot = np.squeeze(img_nc)
     axes[0].imshow(nc_plot, cmap='gray', vmin=0, vmax=1)
-    axes[0].set_title(titles[0], fontsize=14)
+    axes[0].set_title(titles[0])
     axes[0].axis('off') 
 
-    ad_plot = np.squeeze(img_ad_np)
+    ad_plot = np.squeeze(img_ad)
     axes[1].imshow(ad_plot, cmap='gray', vmin=0, vmax=1)
-    axes[1].set_title(titles[1], fontsize=14)
+    axes[1].set_title(titles[1])
     axes[1].axis('off')
     plt.show()
 

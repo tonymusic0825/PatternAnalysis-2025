@@ -9,6 +9,36 @@ import torch
 import torch.nn.functional as F
 import math
 
+class Mapping(nn.Module):
+    """
+    Mapping network for which given an initial noise vector z and maps to w (disentangled vectors)
+    Additionally, embeds the label (NC, AD) into the w vector
+    """
+    def __init__(self, z_dim=256, w_dim=256, num_layers=8, n_classes=2, y_dim=64):
+        super().__init__()
+        layers = []
+        self.y_emb = nn.Embedding(n_classes, y_dim)
+        in_dim = z_dim + y_dim
+
+        # Basically Creates an EqualizedLinear MLP
+        for _ in range(num_layers - 1):
+            layers.append(EqualizedLinear(in_dim, w_dim))
+            layers.append(nn.ReLU())
+            in_dim = w_dim
+        
+        layers.append(EqualizedLinear(in_dim, w_dim))
+        self.map = nn.Sequential(*layers)
+    
+    def forward(self, z, y):
+        # Pixel Norm
+        z = z / torch.sqrt(torch.mean(z ** 2, dim=1, keepdim=True) + 1e-8)
+        
+        # Embed y and fuse it in
+        ye = self.y_emb(y)
+        h = torch.cat([z, ye], dim=1)
+
+        return self.map(h)
+
 class Generator(nn.Module):
     """
     StyleGAN2 Generator 
@@ -19,21 +49,16 @@ class Generator(nn.Module):
         w_dim=256,          
         n_features=32,
         max_features=256,
-        z_dim=256,
-        n_classes=2,
-        y_dim=64,
         out_c=1,
     ):
         super().__init__()
         self.log_res = log_res
         self.w_dim = w_dim
-        self.out_c = out_c
+        # self.out_c = out_c
 
         # channel schedule (same pattern as test.py)
         feats = [min(max_features, n_features * (2 ** i)) for i in range(log_res - 2, -1, -1)]
         self.n_blocks = len(feats)
-
-        self.mapping = Mapping(z_dim, w_dim, num_layers=8, n_classes=n_classes, y_dim=y_dim)
 
         self.initial_constant = nn.Parameter(torch.randn(1, feats[0], 4, 4))
         self.style = StyleBlock(w_dim, feats[0], feats[0])
@@ -41,32 +66,9 @@ class Generator(nn.Module):
 
         blocks = [GenBlock(w_dim, feats[i - 1], feats[i]) for i in range(1, self.n_blocks)]
         self.blocks = nn.ModuleList(blocks)
-    
-    def get_noise(self, B, device):
-        """
-        Generates noise for each generator block
-        """
-        noise = []
-        res = 4
 
-        for i in range(self.log_res):
-            n1 = None if i == 0 else torch.randn(B, 1, res, res, device=device)
-            n2 = torch.randn(B, 1, res, res, device=device)
-            noise.append((n1, n2))
-            res *= 2
-
-        return noise
-
-    def forward(self, z, y, return_w):
-        B, device = z.size(0), z.device # For noise
-        w_single = self.mapping(z, y) 
-
-        # Enable for PPL Implementation 
-        if return_w:
-            w.single.requires_grad_(True)
-        
-        noise = self.get_noise(B, device)
-        w = w_single[None, :, :].expand(self.n_blocks, -1, -1)  # [n_blocks,B,W_DIM]
+    def forward(self, w, noise):
+        B = w.shape[1]
 
         x = self.initial_constant.expand(B, -1, -1, -1)
         x = self.style(x, w[0], noise[0][1])   
@@ -76,9 +78,6 @@ class Generator(nn.Module):
             x = F.interpolate(x, scale_factor=2, mode="bilinear")
             x, rgb_new = self.blocks[i - 1](x, w[i], noise[i])
             rgb = F.interpolate(rgb, scale_factor=2, mode="bilinear") + rgb_new
-
-        if return_w:
-            return (torch.tanh(rgb), w_single)
 
         return torch.tanh(rgb)
 
