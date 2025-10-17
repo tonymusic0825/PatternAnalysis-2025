@@ -57,8 +57,20 @@ def load_data_2D(imageNames, normImage=False, target_shape=(256, 128), dtype=np.
 
         inImage = inImage.astype(dtype)
 
+        # Let's normalize to [-1, 1]
         if normImage:
-            inImage = (inImage - inImage.mean()) / inImage.std()
+            # * [-1, 1] normalization
+            min_val = inImage.min()
+            max_val = inImage.max()
+            inImage = 2.0 * ((inImage - min_val) / (max_val - min_val + 1e-8)) - 1.0
+
+            # * [0, 1] normalization
+            # min_val = inImage.min()
+            # max_val = inImage.max()
+            # inImage = (inImage - min_val) / (max_val - min_val + 1e-8)
+
+            # * Just normal norm
+            # inImage = (inImage - inImage.mean()) / inImage.std()
         
         inImage = inImage[np.newaxis, :, :] # Add Channel dimension
         images.append(inImage)
@@ -121,6 +133,10 @@ if __name__ == "__main__":
         for x in loader:
             print("Batch:", x.shape) 
             print(f"Total (Approx) = {len(loader) * x.shape[0]}")
+            max_val = x.max().item()
+            min_val = x.min().item()
+            print(f"Image Max Value: {max_val:.4f}")
+            print(f"Image Min Value: {min_val:.4f}")
 
             # Visual
             imgs = x[:8]  # take first 8 images from the batch
