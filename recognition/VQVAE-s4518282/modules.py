@@ -33,9 +33,43 @@ class Encoder(nn.Module):
     def forward(self, x):
         return self.encoder(x)
 
+class UpBlock(nn.Module):
+    def __init__(self, in_c, out_c, kernel_size=4, stride=2, padding=1):
+        super().__init__()
+        self.block = nn.Sequential(
+            nn.ConvTranspose2d(in_c, out_c, kernel_size, stride, padding),
+            nn.InstanceNorm2d(out_c, affine=True),
+            nn.LeakyReLU(0.2, inplace=True)
+        )
+
+    def forward(self, x):
+        return self.block(x)
+
+class Decoder(nn.Module):
+    def __init__(self, out_c=1, channels=(256, 256, 128, 64)):
+        super().__init__()
+
+        layers = []
+
+        # Upsample stages (reverse of encoder)
+        for i in range(len(channels) - 1):
+            layers.append(UpBlock(channels[i], channels[i + 1]))
+
+        layers.append(nn.ConvTranspose2d(channels[-1], out_c, kernel_size=4, stride=2, padding=1))
+        layers.append(nn.Tanh())
+
+        self.decoder = nn.Sequential(*layers)
+
+    def forward(self, x):
+        return self.decoder(x)
+
 
 if __name__ == "__main__":
     enc = Encoder()
+    dec = Decoder()
     x = torch.randn(16, 1, 256, 128)
     z = enc(x)
-    print("Output shape:", z.shape)
+    print("Output shape (Encoder):", z.shape)
+
+    x = dec(z)
+    print("Output shape (Decoder):", x.shape)
