@@ -63,13 +63,68 @@ class Decoder(nn.Module):
     def forward(self, x):
         return self.decoder(x)
 
+class Quantizer(nn.Module):
+    """ 
+    REF: https://github.com/explainingai-code/VQVAE-Pytorch/blob/main/model/quantizer.py 
+    """
+    def __init__(self, embed_num=512, embed_dim=256, beta=0.25):
+        super().__init__()
+        self.beta = beta
+        self.embed_num = embed_num
+        self.embed_dim = embed_dim
+        
+        # Create embedding
+        self.embedding = nn.Embedding(embed_num, embed_dim)
+
+    def forward(self, x):
+
+        # Flatten [B, C, H, W] -> [B, H*W, C]
+        B, C, H, W = x.shape
+        x_perm = x.permute(0, 2, 3, 1).contiguous()
+        x_flat = x_perm.view(B, -1, C) 
+
+        # Compute distances [B, H*W, codebook_size]
+        dist = torch.cdist(x_flat, self.embedding.weight[None, :].expand(B, -1, -1)) 
+        indices = torch.argmin(dist, dim=-1) # Pick the closest! [B, H*W]
+
+        # Embedding lookup
+        quantized = self.embedding(indices.view(-1))
+        quantized = quantized.view(B, H, W, C) 
+
+        # Compute codebook + commitment loss
+        x_flat_all = x_flat.reshape(-1, C)      # [B*H*W, C]
+        quant_flat = quantized.reshape(-1, C)   # [B*H*W, C]
+
+        codebook_loss = F.mse_loss(quant_flat.detach(), x_flat_all)
+        commit_loss = F.mse_loss(quant_flat, x_flat_all.detach())
+        vq_loss = codebook_loss + self.beta * commit_loss
+
+        # Enable backprop and reshape
+        quantized = x_perm + (quantized - x_perm).detach()
+        quantized = quantized.permute(0, 3, 1, 2).contiguous()
+        indices = indices.view(B, H, W)
+
+        return quantized, vq_loss, indices
 
 if __name__ == "__main__":
     enc = Encoder()
+    quant = Quantizer(embed_num=512, embed_dim=256, beta=0.25)
     dec = Decoder()
-    x = torch.randn(16, 1, 256, 128)
-    z = enc(x)
-    print("Output shape (Encoder):", z.shape)
 
-    x = dec(z)
-    print("Output shape (Decoder):", x.shape)
+    # Dummy input
+    x = torch.randn(16, 1, 256, 128)
+    print(f"Input shape: {x.shape}")
+
+    # Encoder forward
+    z_e = enc(x)
+    print("Output shape (Encoder):", z_e.shape)
+
+    # Quantizer forward
+    z_q, vq_loss, indices = quant(z_e)
+    print("Output shape (Quantizer):", z_q.shape)
+    print("Quantizer loss:", round(vq_loss.item(), 6))
+    print("Codebook indices shape:", indices.shape)
+
+    # Decoder forward
+    x_hat = dec(z_q)
+    print("Output shape (Decoder):", x_hat.shape)
