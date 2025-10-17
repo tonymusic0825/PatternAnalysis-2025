@@ -69,10 +69,10 @@ def load_data_2D(imageNames, normImage=False, target_shape=(256, 128), dtype=np.
     return images
 
 class HipmriDataset(Dataset):
-    def __init__(self,  path=DEFAULT_TRAIN, normImage=True, earlyStop=False):
+    def __init__(self,  path=DEFAULT_TRAIN, normImage=True, earlyStop=False, transform=None):
         self.root = path
         self.normImage = normImage
-
+        self.transform = transform
         # Load Data
         self.images = load_data_2D(
             path,
@@ -86,12 +86,14 @@ class HipmriDataset(Dataset):
     def __getitem__(self, idx):
         img = self.images[idx]  # shape: (C, H, W)
 
-        # convert to torch tensor
+        if self.transform is not None:
+             return self.transform(img)
+        
         img = torch.tensor(img, dtype=torch.float32)
 
         return img
 
-def get_dataloader(type="train", batch_size=16, workers=0, earlyStop=False):
+def get_dataloader(type="train", batch_size=16, workers=0, earlyStop=False, transform=None):
     
     split_paths = {
         "train": DEFAULT_TRAIN,
@@ -101,7 +103,7 @@ def get_dataloader(type="train", batch_size=16, workers=0, earlyStop=False):
     }
 
     paths = sorted(glob.glob(os.path.join(split_paths[type], "*.nii.gz")))
-    dataset = HipmriDataset(path=paths, normImage=True, earlyStop=earlyStop)
+    dataset = HipmriDataset(path=paths, normImage=True, earlyStop=earlyStop, transform=transform)
     loader = DataLoader(dataset, batch_size=batch_size, num_workers=workers, shuffle=True)
 
     return loader
