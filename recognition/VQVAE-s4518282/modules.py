@@ -106,6 +106,20 @@ class Quantizer(nn.Module):
 
         return quantized, vq_loss, indices
 
+class VQVAE(nn.Module):
+    def __init__(self, in_c=1, out_c=1, channels=(64,128,256,256), embed_num=512, embed_dim=256, beta=0.25):
+        super().__init__()
+        self.encoder = Encoder(in_c=in_c, channels=channels)
+        self.quantizer = Quantizer(embed_num=embed_num, embed_dim=embed_dim, beta=beta)
+        self.decoder = Decoder(out_c=out_c, channels=channels[::-1])
+    
+    def forward(self, x):
+        z_e = self.encoder(x)
+        z_q, vq_loss, indices = self.quantizer(z_e)
+        pred = self.decoder(z_q)
+
+        return pred, vq_loss
+
 if __name__ == "__main__":
     enc = Encoder()
     quant = Quantizer(embed_num=512, embed_dim=256, beta=0.25)
@@ -128,3 +142,20 @@ if __name__ == "__main__":
     # Decoder forward
     x_hat = dec(z_q)
     print("Output shape (Decoder):", x_hat.shape)
+
+    # Test VQVAE
+    print("\n==== TEST VQVAE FULL ====")
+    model = VQVAE(in_c=1, out_c=1, channels=(64,128,256,256), embed_num=512, embed_dim=256, beta=0.25)
+
+    # Forward pass through entire model
+    pred, vq_loss = model(x)
+
+    print("Input:", x.shape)
+    print("Reconstructed output:", pred.shape)
+    print("VQ Loss:", round(vq_loss.item(), 6))
+
+    # Simple reconstruction loss test
+    recon_loss = torch.nn.functional.l1_loss(pred, x)
+    total_loss = recon_loss + vq_loss
+    print("Reconstruction loss:", round(recon_loss.item(), 6))
+    print("Total loss:", round(total_loss.item(), 6))
