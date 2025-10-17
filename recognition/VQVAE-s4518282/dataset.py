@@ -90,16 +90,29 @@ class HipmriDataset(Dataset):
         img = torch.tensor(img, dtype=torch.float32)
 
         return img
+
+def get_dataloader(type="train", batch_size=16, workers=0, earlyStop=False):
+    
+    split_paths = {
+        "train": DEFAULT_TRAIN,
+        "val": DEFAULT_VAL,
+        "validate": DEFAULT_VAL,
+        "test": DEFAULT_TEST,
+    }
+
+    paths = sorted(glob.glob(os.path.join(split_paths[type], "*.nii.gz")))
+    dataset = HipmriDataset(path=paths, normImage=True, earlyStop=earlyStop)
+    loader = DataLoader(dataset, batch_size=batch_size, num_workers=workers, shuffle=True)
+
+    return loader
     
 if __name__ == "__main__":
 
     EARLY_STOP = True
-    all_paths = [DEFAULT_TEST, DEFAULT_TRAIN, DEFAULT_VAL]
+    all_types = ["train", "test", "val"]
 
-    for path in all_paths:
-        paths = sorted(glob.glob(os.path.join(path, "*.nii.gz")))
-        dataset = HipmriDataset(path=paths, normImage=True, earlyStop=EARLY_STOP)
-        loader = DataLoader(dataset, batch_size=16, shuffle=True)
+    for type in all_types:
+        loader = get_dataloader(type, earlyStop=True)
 
         print("Loader Length: ", len(loader))
         
