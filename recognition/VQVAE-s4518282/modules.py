@@ -1,9 +1,36 @@
+"""
+modules.py
+-----------
+Defines the neural architecture for a Vector Quantized Variational Autoencoder (VQ-VAE).
+
+Modules include:
+- Residual blocks and stacks 
+- Encoder / Decoder with instance normalization
+- Vector Quantizer 
+- Full VQVAE model wrapper
+
+Author: Youngsu Choi
+"""
+
 import torch
 import torch.nn.functional as F
 import torch.nn as nn
 
+# ============================================================
+# *** Residual Structures
+# ============================================================
 class ResidualBlock(nn.Module):
+    """
+    Basic residual block with two convolutions and ReLU activation.
+    """
     def __init__(self, channels):
+        """
+        Initialize a residual block.
+
+        Args:
+            channels (int): Number of input/output feature channels for both
+                convolutions in the block.
+        """
         super().__init__()
         self.block = nn.Sequential(
             nn.Conv2d(channels, channels, 3, 1, 1),
@@ -12,18 +39,46 @@ class ResidualBlock(nn.Module):
         )
 
     def forward(self, x):
+        """Add skip connection to processed output."""
         return x + self.block(x)
 
 class ResidualStack(nn.Module):
+    """
+    Stack multiple residual blocks sequentially.
+    """
     def __init__(self, channels, n_blocks=2):
+        """
+        Initialize a stack of residual blocks.
+
+        Args:
+            channels (int): Number of channels for each residual block.
+            n_blocks (int): How many residual blocks to stack.
+        """
         super().__init__()
         self.blocks = nn.Sequential(*[ResidualBlock(channels) for _ in range(n_blocks)])
 
     def forward(self, x):
         return self.blocks(x)
+    
 
+# ============================================================
+# *** Encoder
+# ============================================================
 class DownBlock(nn.Module):
+    """
+    Downsampling block: Conv → InstanceNorm → LeakyReLU.
+    """
     def __init__(self, in_c, out_c, kernel_size=4, stride=2, padding=1):
+        """
+        Initialize a downsampling block.
+
+        Args:
+            in_c (int): Number of input channels.
+            out_c (int): Number of output channels.
+            kernel_size (int): Convolution kernel size.
+            stride (int): Convolution stride (controls downsampling rate).
+            padding (int): Convolution padding.
+        """
         super().__init__()
 
         self.block = nn.Sequential(
@@ -36,7 +91,19 @@ class DownBlock(nn.Module):
         return self.block(x)
 
 class Encoder(nn.Module):
+    """
+    Encoder: progressively downsamples input image and applies residual stack.
+    """
     def __init__(self, in_c=1, channels=(64, 128, 256), n_res=2):
+        """
+        Initialize the encoder network.
+
+        Args:
+            in_c (int): Number of input channels (e.g., 1 for grayscale).
+            channels (tuple[int, ...]): Feature map sizes per stage. The last
+                entry is the latent channel size before quantization.
+            n_res (int): Number of residual blocks to apply at the end.
+        """
         super().__init__()
 
         self.layers = []
@@ -56,8 +123,24 @@ class Encoder(nn.Module):
 
         return x
 
+# ============================================================
+# *** Decoder
+# ============================================================
 class UpBlock(nn.Module):
+    """
+    Upsampling block: ConvTranspose → InstanceNorm → LeakyReLU.
+    """
     def __init__(self, in_c, out_c, kernel_size=4, stride=2, padding=1):
+        """
+        Initialize an upsampling block.
+
+        Args:
+            in_c (int): Number of input channels.
+            out_c (int): Number of output channels.
+            kernel_size (int): Transposed convolution kernel size.
+            stride (int): Transposed convolution stride (controls upsampling).
+            padding (int): Transposed convolution padding.
+        """
         super().__init__()
         self.block = nn.Sequential(
             nn.ConvTranspose2d(in_c, out_c, kernel_size, stride, padding),
@@ -69,7 +152,21 @@ class UpBlock(nn.Module):
         return self.block(x)
 
 class Decoder(nn.Module):
+    """
+    Decoder: reconstructs image from quantized latent embeddings.
+    """
     def __init__(self, out_c=1, channels=(256, 128, 64), n_res=2):
+        """
+        Initialize the decoder network.
+
+        Args:
+            out_c (int): Number of channels in the reconstructed output
+                (e.g., 1 for grayscale reconstruction).
+            channels (tuple[int, ...]): Channel sizes following the encoder's
+                reverse order. The first item is the latent channel size.
+            n_res (int): Number of residual blocks applied after the first
+                upsampling stage (matching the latent resolution).
+        """
         super().__init__()
 
         layers = []
@@ -92,12 +189,27 @@ class Decoder(nn.Module):
             if i == 0:
                 x = self.res_stack(x)  
         return self.final(x)
-    
+
+
+# ============================================================
+# *** Vector Quantizer
+# ============================================================
 class Quantizer(nn.Module):
     """ 
+    Vector quantization layer for VQ-VAE.
+    Converts continuous encoder outputs to discrete embeddings.
+
     REF: https://github.com/explainingai-code/VQVAE-Pytorch/blob/main/model/quantizer.py 
     """
     def __init__(self, embed_num=512, embed_dim=256, beta=0.25):
+        """
+        Initialize the vector quantizer.
+
+        Args:
+            embed_num (int): Size of the codebook (number of embeddings).
+            embed_dim (int): Dimensionality of each code vector.
+            beta (float): Weight for the commitment loss term.
+        """
         super().__init__()
         self.beta = beta
         self.embed_num = embed_num
@@ -112,6 +224,14 @@ class Quantizer(nn.Module):
         self.embedding.weight.data.uniform_(-1.0 / embed_num, 1.0 / embed_num)
 
     def forward(self, x):
+        """
+        Args:
+            x (Tensor): Encoder output of shape [B, C, H, W].
+        Returns:
+            quantized (Tensor): Quantized latent map [B, C, H, W].
+            vq_loss (Tensor): Codebook + commitment loss.
+            indices (Tensor): Code indices for each spatial position.
+        """
 
         # Flatten [B, C, H, W] -> [B, H*W, C]
         B, C, H, W = x.shape
@@ -141,8 +261,28 @@ class Quantizer(nn.Module):
 
         return quantized, vq_loss, indices
 
+
+# ============================================================
+# *** VQ-VAE Model
+# ============================================================
 class VQVAE(nn.Module):
+    """
+    Full VQ-VAE model combining Encoder, Quantizer, and Decoder.
+    """
     def __init__(self, in_c=1, out_c=1, channels=(64,128,256,256), embed_num=512, embed_dim=256, beta=0.25):
+        """
+        Initialize the full VQ-VAE.
+
+        Args:
+            in_c (int): Number of input channels to the encoder.
+            out_c (int): Number of output channels from the decoder.
+            channels (tuple[int, ...]): Encoder channel sizes; the decoder
+                uses the reverse of this tuple.
+            embed_num (int): Codebook size for the vector quantizer.
+            embed_dim (int): Code (embedding) dimensionality.
+            beta (float): Commitment loss weight.
+            n_res (int): Number of residual blocks in encoder/decoder stacks.
+        """
         super().__init__()
         self.encoder = Encoder(in_c=in_c, channels=channels)
         self.quantizer = Quantizer(embed_num=embed_num, embed_dim=embed_dim, beta=beta)
@@ -155,6 +295,7 @@ class VQVAE(nn.Module):
 
         return pred, vq_loss
 
+# SANITY CHECK
 if __name__ == "__main__":
     enc = Encoder()
     quant = Quantizer(embed_num=512, embed_dim=256, beta=0.25)
