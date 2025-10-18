@@ -21,13 +21,14 @@ EPOCHS = 50
 EARLY_STOP = False  
 
 # Model
-CHANNELS = (64, 128, 256, 256)
-EMBED_NUM = 512
-EMBED_DIM = 256
+CHANNELS = (64, 128, 256)
+EMBED_NUM = 1024
+EMBED_DIM = 64
 BETA = 0.25
+N_RES = 5
 
 # Optimizer
-LEARNING_RATE = 2e-4
+LEARNING_RATE = 3e-4
 
 # Logging & checkpoints
 LOG_INTERVAL = 50
@@ -39,11 +40,11 @@ os.makedirs(SAVE_DIR, exist_ok=True)
 # **** Train Objects
 # ============================================================
 model = VQVAE(in_c=1, out_c=1, channels=CHANNELS, embed_num=EMBED_NUM, embed_dim=EMBED_DIM, 
-              beta=BETA).to(DEVICE)
+              beta=BETA, n_res=N_RES).to(DEVICE)
 
 train_loader = get_dataloader("train", batch_size=BATCH_SIZE, workers=0, earlyStop=EARLY_STOP)
 val_loader = get_dataloader("val", batch_size=BATCH_SIZE, workers=0, earlyStop=EARLY_STOP)
-optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
+optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE, amsgrad=True)
 
 
 # ============================================================

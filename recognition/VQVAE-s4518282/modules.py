@@ -2,6 +2,26 @@ import torch
 import torch.nn.functional as F
 import torch.nn as nn
 
+class ResidualBlock(nn.Module):
+    def __init__(self, channels):
+        super().__init__()
+        self.block = nn.Sequential(
+            nn.Conv2d(channels, channels, 3, 1, 1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(channels, channels, 1),
+        )
+
+    def forward(self, x):
+        return x + self.block(x)
+
+class ResidualStack(nn.Module):
+    def __init__(self, channels, n_blocks=2):
+        super().__init__()
+        self.blocks = nn.Sequential(*[ResidualBlock(channels) for _ in range(n_blocks)])
+
+    def forward(self, x):
+        return self.blocks(x)
+
 class DownBlock(nn.Module):
     def __init__(self, in_c, out_c, kernel_size=4, stride=2, padding=1):
         super().__init__()
@@ -16,7 +36,7 @@ class DownBlock(nn.Module):
         return self.block(x)
 
 class Encoder(nn.Module):
-    def __init__(self, in_c=1, channels=(64, 128, 256, 256), n_res=2):
+    def __init__(self, in_c=1, channels=(64, 128, 256), n_res=2):
         super().__init__()
 
         self.layers = []
@@ -27,11 +47,14 @@ class Encoder(nn.Module):
         for i in range(len(channels) - 1):
             self.layers.append(DownBlock(channels[i], channels[i + 1]))
         
-        self.layers.append(DownBlock(channels[-1], channels[-1]))
+        self.res_stack = ResidualStack(channels[-1], n_blocks=n_res)
         self.encoder = nn.Sequential(*self.layers)
     
     def forward(self, x):
-        return self.encoder(x)
+        x = self.encoder(x)
+        x = self.res_stack(x)
+
+        return x
 
 class UpBlock(nn.Module):
     def __init__(self, in_c, out_c, kernel_size=4, stride=2, padding=1):
@@ -46,7 +69,7 @@ class UpBlock(nn.Module):
         return self.block(x)
 
 class Decoder(nn.Module):
-    def __init__(self, out_c=1, channels=(256, 256, 128, 64)):
+    def __init__(self, out_c=1, channels=(256, 128, 64), n_res=2):
         super().__init__()
 
         layers = []
@@ -55,14 +78,21 @@ class Decoder(nn.Module):
         for i in range(len(channels) - 1):
             layers.append(UpBlock(channels[i], channels[i + 1]))
 
-        layers.append(nn.ConvTranspose2d(channels[-1], out_c, kernel_size=4, stride=2, padding=1))
-        layers.append(nn.Tanh())
-
+        self.res_stack = ResidualStack(channels[1], n_blocks=n_res)  # 2nd channel in list after first upsample
         self.decoder = nn.Sequential(*layers)
 
+        self.final = nn.Sequential(
+            nn.Conv2d(channels[-1], out_c, 3, 1, 1),
+            nn.Tanh()
+        )
+        
     def forward(self, x):
-        return self.decoder(x)
-
+        for i, layer in enumerate(self.decoder):
+            x = layer(x)
+            if i == 0:
+                x = self.res_stack(x)  
+        return self.final(x)
+    
 class Quantizer(nn.Module):
     """ 
     REF: https://github.com/explainingai-code/VQVAE-Pytorch/blob/main/model/quantizer.py 
