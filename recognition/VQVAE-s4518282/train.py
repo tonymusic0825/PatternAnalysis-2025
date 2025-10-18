@@ -1,3 +1,19 @@
+"""
+train.py
+---------
+Main training loop for the VQ-VAE model on HipMRI data.
+
+Handles:
+- Model creation and optimizer setup
+- Data loading (train/val)
+- Training and validation loops
+- Loss computation (reconstruction + VQ loss)
+- SSIM metric for reconstruction quality
+- Checkpoint saving
+
+Author: Youngsu Choi
+"""
+
 import os, math, time, argparse
 import torch
 import torch.nn as nn
@@ -37,7 +53,7 @@ os.makedirs(SAVE_DIR, exist_ok=True)
 
 
 # ============================================================
-# **** Train Objects
+# **** Model, Optimizer, and Data
 # ============================================================
 model = VQVAE(in_c=1, out_c=1, channels=CHANNELS, embed_num=EMBED_NUM, embed_dim=EMBED_DIM, 
               beta=BETA, n_res=N_RES).to(DEVICE)
@@ -64,10 +80,12 @@ for epoch in range(1, EPOCHS + 1):
         x = x.to(DEVICE)
         optimizer.zero_grad()
 
+        # Predict and calculate loss
         pred, vq_loss = model(x)
         recon_loss = F.l1_loss(pred, x)
         total_loss = recon_loss + vq_loss
 
+        # Grad Descent
         total_loss.backward()
         optimizer.step()
 
@@ -119,7 +137,8 @@ for epoch in range(1, EPOCHS + 1):
         }, ckpt_path)
         print(f"Saved checkpoint: {ckpt_path}\n")
 
-# Save loss history separately
+# Save final oss history separately
+# Still have loss history if we break early
 torch.save({
     "train_loss_history": train_loss_history,
     "val_loss_history": val_loss_history,
