@@ -106,6 +106,11 @@ class Quantizer(nn.Module):
         # Create embedding
         self.embedding = nn.Embedding(embed_num, embed_dim)
 
+        # Initialize codebook weights to small uniform values for stability
+        # This helps prevent large distance magnitudes at the start of training
+        # and avoids "dead" codebook entries early on.
+        self.embedding.weight.data.uniform_(-1.0 / embed_num, 1.0 / embed_num)
+
     def forward(self, x):
 
         # Flatten [B, C, H, W] -> [B, H*W, C]
