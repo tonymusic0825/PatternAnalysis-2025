@@ -1,3 +1,18 @@
+"""
+dataset.py
+-----------
+Defines utilities for loading and preprocessing 2D medical images
+(especially HipMRI NIfTI slices) for training the VQ-VAE model.
+
+Includes:
+- to_channels: Converts integer label maps into one-hot channels.
+- load_data_2D: Loads and normalizes NIfTI slices into NumPy arrays.
+- HipmriDataset: PyTorch `Dataset` wrapper around NIfTI files.
+- get_dataloader: Builds a PyTorch `DataLoader` for train/val/test splits.
+
+Author: Youngsu Choi
+"""
+
 import numpy as np
 import nibabel as nib
 import tqdm as tqdm
@@ -16,6 +31,16 @@ DEFAULT_VAL = os.path.join(BASE_DIR, "hipmri/keras_slices_validate")
 
 # Convert integer-labelled image to multi-channel (one-hot encoded) array
 def to_channels(arr: np.ndarray, dtype=np.uint8) -> np.ndarray:
+    """
+    Convert an integer-labelled image to a one-hot encoded multi-channel array.
+
+    Args:
+        arr (np.ndarray): Input array with integer labels (H, W).
+        dtype (np.dtype): Output array type.
+
+    Returns:
+        np.ndarray: One-hot encoded array with shape (H, W, num_classes).
+    """
     channels = np.unique(arr)
     res = np.zeros(arr.shape + (len(channels),), dtype=dtype)
     for c in channels:
@@ -27,19 +52,19 @@ def to_channels(arr: np.ndarray, dtype=np.uint8) -> np.ndarray:
 # Load 2D medical image data
 def load_data_2D(imageNames, normImage=False, target_shape=(256, 128), dtype=np.float32, earlyStop=False):
     """
-    Load a list of 2D medical image files into a 4D NumPy array.
+    Load 2D NIfTI medical image slices into NumPy arrays.
 
-    REF: This code is taken directly from COMP3710 A3 TASK SHEET
+    Adapted from COMP3710 A3 Task Sheet.
 
-    Parameters:
-        imageNames : List of NIfTI file paths (.nii or .nii.gz)
-        normImage : If True, normalize each image to zero mean and unit variance.
-        categorical : If True, convert label maps into one-hot encoded channels.
-        dtype : Desired data type of the output array.
-        early_stop : If True, load only a few images (for testing/debugging).
+    Args:
+        imageNames (list[str]): List of .nii or .nii.gz image paths.
+        normImage (bool): Normalize images to [-1, 1].
+        target_shape (tuple): Expected (H, W) for valid slices.
+        dtype (np.dtype): Output array dtype.
+        earlyStop (bool): If True, stops after ~20 samples (debug mode).
 
     Returns:
-        images: Array of shape (N, H, W, [C])
+        list[np.ndarray]: List of normalized images shaped (1, H, W).
     """
 
     images = []
@@ -81,10 +106,23 @@ def load_data_2D(imageNames, normImage=False, target_shape=(256, 128), dtype=np.
     return images
 
 class HipmriDataset(Dataset):
+    """
+    Dataset class wrapping HipMRI image slices for PyTorch.
+
+    Each sample is a single-channel tensor (1, H, W).
+    """
     def __init__(self,  path=DEFAULT_TRAIN, normImage=True, earlyStop=False, transform=None):
+        """
+        Args:
+            path (str | list[str]): Directory or list of image paths.
+            normImage (bool): Normalize to [-1, 1].
+            earlyStop (bool): Load fewer samples (debug).
+            transform (callable): Optional transform applied per sample.
+        """
         self.root = path
         self.normImage = normImage
         self.transform = transform
+
         # Load Data
         self.images = load_data_2D(
             path,
@@ -93,19 +131,34 @@ class HipmriDataset(Dataset):
         )
 
     def __len__(self):
+        """Return number of images."""
         return len(self.images)
     
     def __getitem__(self, idx):
+        """Return image tensor with optional transform applied."""
         img = self.images[idx]  # shape: (C, H, W)
 
         if self.transform is not None:
-             return self.transform(img)
-        
-        img = torch.tensor(img, dtype=torch.float32)
+            img = self.transform(img)
+        else:
+            img = torch.tensor(img, dtype=torch.float32)
 
         return img
 
 def get_dataloader(type="train", batch_size=16, workers=0, earlyStop=False, transform=None):
+    """
+    Build a PyTorch DataLoader for HipMRI datasets.
+
+    Args:
+        type (str): Expects 'train', 'val/validate', or 'test'.
+        batch_size (int): Batch size.
+        workers (int): DataLoader workers.
+        earlyStop (bool): Enable test mode, only loads in 20 images.
+        transform (callable): Optional transform applied to samples.
+
+    Returns:
+        torch.utils.data.DataLoader: Configured DataLoader.
+    """
     
     split_paths = {
         "train": DEFAULT_TRAIN,
@@ -119,7 +172,8 @@ def get_dataloader(type="train", batch_size=16, workers=0, earlyStop=False, tran
     loader = DataLoader(dataset, batch_size=batch_size, num_workers=workers, shuffle=True)
 
     return loader
-    
+
+# For SANITY CHECK 
 if __name__ == "__main__":
 
     EARLY_STOP = True
