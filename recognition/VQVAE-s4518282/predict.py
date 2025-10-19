@@ -150,6 +150,7 @@ def visualize_batch(inputs, outputs, batch_idx, num_images=8):
     batch_size = min(num_images, inputs.shape[0]) 
     plt.figure(figsize=(10, 5))
 
+    # Plot original vs reconstruction 
     for i in range(batch_size):
         # Input
         plt.subplot(2, batch_size, i + 1)
@@ -177,6 +178,48 @@ def visualize_batch(inputs, outputs, batch_idx, num_images=8):
     plt.tight_layout()
     plt.show()
 
+# ============================================================
+# Visualize Codebook Usage
+# ============================================================
+def visualise_codebook_usage(model, dataloader, save=False, save_path="./"):
+    """
+    Visualises the distribution of codebook usage on the given dataloader
+
+    Args:
+        model (nn.Module): A fully trained / loaded model
+        dataloader (torch.utils.data.DataLoader): A dataloader that is 'loaded'
+        save (bool): If True, saves the plot as image instead of showing
+        save_path (str): Path to save the images if save == True
+    """
+
+    # Initialise an empty usage table
+    usage = torch.zeros(model.quantizer.embed_num, device=DEVICE)
+    print("Calculating codebook usage frequency...")
+
+    # For all data predict and append usages 
+    with torch.no_grad():
+        for x in tqdm(dataloader, desc="Usage"):
+            x = x.to(DEVICE)
+            z_e = model.pre_quant_conv(model.encoder(x))
+            _, _, indices = model.quantizer(z_e)
+            flat_idx = indices.view(-1)
+            usage.scatter_add_(0, flat_idx, torch.ones_like(flat_idx, dtype=torch.float))
+
+    # Plot
+    usage = usage.cpu().numpy()
+    plt.figure(figsize=(8, 4))
+    plt.bar(range(len(usage)), usage, color='blue')
+    plt.title("Codebook Usage Frequency")
+    plt.xlabel("Code Index")
+    plt.ylabel("Count")
+    plt.ylim(0, 150000)
+
+    if save:
+        plt.savefig(save_path)
+        plt.close()
+    else:
+        plt.show()
+
 
 # ============================================================
 # Entry Point
@@ -188,7 +231,9 @@ if __name__ == "__main__":
     test_loader = get_dataloader("test", batch_size=BATCH_SIZE, workers=NUM_WORKERS, earlyStop=EARLY_STOP)
 
     # Plot loss graph
-    plot_loss_curves(CHECKPOINT_PATH) 
+    # plot_loss_curves(CHECKPOINT_PATH) 
 
     # Evaluate model + visualise reconstructions
-    evaluate_model(model, test_loader)
+    # evaluate_model(model, test_loader)
+
+    visualise_codebook_usage(model, test_loader)
