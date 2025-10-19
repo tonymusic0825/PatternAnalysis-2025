@@ -24,36 +24,11 @@ from torchmetrics.functional import structural_similarity_index_measure as ssim
 
 from modules import VQVAE
 from dataset import get_dataloader
-
-# ============================================================
-# **** Config
-# ============================================================
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-
-# Data
-BATCH_SIZE = 16
-NUM_WORKERS = 0
-EPOCHS = 50
-EARLY_STOP = False  
-
-# Model
-CHANNELS = (64, 128, 256)
-EMBED_NUM = 1024
-EMBED_DIM = 64
-BETA = 0.25
-N_RES = 5
-
-# Optimizer
-LEARNING_RATE = 3e-4
-
-# Logging & checkpoints
-LOG_INTERVAL = 50
-SAVE_DIR = "checkpoints"
-os.makedirs(SAVE_DIR, exist_ok=True)
+from config import *
 
 
 # ============================================================
-# **** Model, Optimizer, and Data
+# **** Initialise Model, Optimizer, and Data
 # ============================================================
 model = VQVAE(in_c=1, out_c=1, channels=CHANNELS, embed_num=EMBED_NUM, embed_dim=EMBED_DIM, 
               beta=BETA, n_res=N_RES).to(DEVICE)
