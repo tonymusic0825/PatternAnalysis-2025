@@ -38,3 +38,7 @@ LEARNING_RATE = 3e-4
 LOG_INTERVAL = 50
 SAVE_DIR = "checkpoints"
 os.makedirs(SAVE_DIR, exist_ok=True)
+
+# For testing only
+CHECKPOINT_PARENT = "checkpoints/"
+CHECKPOINT_PATH = "checkpoints/vqvae_epoch019.pt"
