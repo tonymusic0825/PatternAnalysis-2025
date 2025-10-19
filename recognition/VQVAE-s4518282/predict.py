@@ -76,6 +76,106 @@ def plot_loss_curves(checkpoint_path, save=False, save_path="loss.png"):
     else:
         plt.show()
 
+# ============================================================
+# Visualize reconstructions + compute SSIM
+# ============================================================
+def evaluate_model(model, test_loader, show_img=True, batch_max=2):
+    """
+    Given a loaded model, evaluates its performance on test data using SSIM scores.
+    Also plots the original vs reconstruction images.
+
+    Args:
+        model (nn.Module): A fully trained / loaded model
+        test_loader (torch.utils.data.DataLoader): A test dataloader that is 'loaded'
+        show_img (bool): If True, show the original vs recon plot
+        batch_max (int): Defines how many batches to show for plot
+    """
+
+    # Load test data
+    total_ssim = 0.0
+    min_ssim = 1.0
+    max_ssim = 0.0
+    num_batches = 0
+
+    # Get a few batches for visualization
+    with torch.no_grad():
+        for batch_idx, x in enumerate(test_loader):
+            x = x.to(DEVICE)
+            pred, _ = model(x)
+
+            # Compute SSIM for this batch
+            ssim_score = ssim(
+                torch.clamp(pred, -1, 1),
+                torch.clamp(x, -1, 1),
+                data_range=2.0,
+            ).item()
+
+            # Update total ssim
+            total_ssim += ssim_score
+            num_batches += 1
+            
+            # Update min and max ssim
+            min_ssim = ssim_score if ssim_score < min_ssim else min_ssim
+            max_ssim = ssim_score if ssim_score > max_ssim else max_ssim
+
+            # Plot first few batches only
+            if batch_idx < batch_max and show_img:
+                visualize_batch(x, pred, batch_idx)
+
+    avg_ssim = total_ssim / num_batches
+    print(f"Minimum SSIM on test set: {min_ssim:.4f}")
+    print(f"Average SSIM on test set: {avg_ssim:.4f}")
+    print(f"Maximum SSIM on test set: {max_ssim:.4f}")
+
+
+# ============================================================
+# Visualization helper
+# ============================================================
+def visualize_batch(inputs, outputs, batch_idx, num_images=8):
+    """
+    Given original images and reconstructed images plots them where,
+    First Row: Original
+    Second Row: Reconstructed
+
+    Args:
+        inputs (torch.Tensor): A fully trained / loaded model
+        outputs (torch.Tensor): If True, show the original vs recon plot
+        batch_idx (int): Current Batch Number
+        num_images (int): Number of image pairs to plot
+    """
+    inputs = inputs.cpu().numpy()
+    outputs = outputs.cpu().numpy()
+
+    # Safe guard against num_images > batch size
+    batch_size = min(num_images, inputs.shape[0]) 
+    plt.figure(figsize=(10, 5))
+
+    for i in range(batch_size):
+        # Input
+        plt.subplot(2, batch_size, i + 1)
+
+        if i >= 4:
+            plt.imshow(inputs[i, 0], cmap="plasma", vmin=-1, vmax=1)
+        else:
+            plt.imshow(inputs[i, 0], cmap="gray", vmin=-1, vmax=1)
+        plt.axis("off")
+
+        if i == 0:
+            plt.ylabel("Input")
+
+        # Reconstruction
+        plt.subplot(2, batch_size, batch_size + i + 1)
+        if i >= 4:
+            plt.imshow(outputs[i, 0], cmap="plasma", vmin=-1, vmax=1)
+        else:
+            plt.imshow(outputs[i, 0], cmap="gray", vmin=-1, vmax=1)
+        plt.axis("off")
+        
+        if i == 0:
+            plt.ylabel("Reconstruction")
+
+    plt.tight_layout()
+    plt.show()
 
 
 # ============================================================
@@ -85,7 +185,10 @@ if __name__ == "__main__":
 
     # Load Model and Test Data
     model = load_model(CHECKPOINT_PATH)
-    test_loader = get_dataloader("train", batch_size=BATCH_SIZE, workers=NUM_WORKERS, earlyStop=EARLY_STOP)
+    test_loader = get_dataloader("test", batch_size=BATCH_SIZE, workers=NUM_WORKERS, earlyStop=EARLY_STOP)
 
     # Plot loss graph
-    # plot_loss_curves(CHECKPOINT_PATH) 
+    plot_loss_curves(CHECKPOINT_PATH) 
+
+    # Evaluate model + visualise reconstructions
+    evaluate_model(model, test_loader)
