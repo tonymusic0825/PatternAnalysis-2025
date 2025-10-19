@@ -16,6 +16,7 @@ import matplotlib.pyplot as plt
 from torchmetrics.functional import structural_similarity_index_measure as ssim
 from tqdm import tqdm
 from sklearn.manifold import TSNE
+import argparse
 
 from config import *
 from dataset import get_dataloader
@@ -80,7 +81,7 @@ def plot_loss_curves(checkpoint_path, save=False, save_path="loss.png"):
 # ============================================================
 # Visualize reconstructions + compute SSIM
 # ============================================================
-def evaluate_model(model, test_loader, show_img=True, batch_max=2):
+def evaluate_model(model, test_loader, save=False, batch_max=2):
     """
     Given a loaded model, evaluates its performance on test data using SSIM scores.
     Also plots the original vs reconstruction images.
@@ -88,7 +89,7 @@ def evaluate_model(model, test_loader, show_img=True, batch_max=2):
     Args:
         model (nn.Module): A fully trained / loaded model
         test_loader (torch.utils.data.DataLoader): A test dataloader that is 'loaded'
-        show_img (bool): If True, show the original vs recon plot
+        save (bool): If true, saves the original vs recon plot instead of showing
         batch_max (int): Defines how many batches to show for plot
     """
 
@@ -120,8 +121,8 @@ def evaluate_model(model, test_loader, show_img=True, batch_max=2):
             max_ssim = ssim_score if ssim_score > max_ssim else max_ssim
 
             # Plot first few batches only
-            if batch_idx < batch_max and show_img:
-                visualize_batch(x, pred, batch_idx)
+            if batch_idx < batch_max:
+                visualize_batch(x, pred, save=save)
 
     avg_ssim = total_ssim / num_batches
     print(f"Minimum SSIM on test set: {min_ssim:.4f}")
@@ -132,7 +133,7 @@ def evaluate_model(model, test_loader, show_img=True, batch_max=2):
 # ============================================================
 # Visualization helper
 # ============================================================
-def visualize_batch(inputs, outputs, batch_idx, num_images=8):
+def visualize_batch(inputs, outputs, num_images=8, save=False):
     """
     Given original images and reconstructed images plots them where,
     First Row: Original
@@ -141,8 +142,8 @@ def visualize_batch(inputs, outputs, batch_idx, num_images=8):
     Args:
         inputs (torch.Tensor): A fully trained / loaded model
         outputs (torch.Tensor): If True, show the original vs recon plot
-        batch_idx (int): Current Batch Number
         num_images (int): Number of image pairs to plot
+        save (bool): Saves the images instead of showing
     """
     inputs = inputs.cpu().numpy()
     outputs = outputs.cpu().numpy()
@@ -177,7 +178,13 @@ def visualize_batch(inputs, outputs, batch_idx, num_images=8):
             plt.ylabel("Reconstruction")
 
     plt.tight_layout()
-    plt.show()
+
+    # Save or show
+    if save:
+        plt.savefig("recon_visual.png")
+        plt.close()
+    else:
+        plt.show()
 
 # ============================================================
 # Visualize Codebook Usage
@@ -282,24 +289,28 @@ def visualize_input_latent_output(model, test_loader):
 # ============================================================
 # Visualize Codebook Embeddings (t-SNE)
 # ============================================================
-def visualize_codebook_tsne(model):
+def visualize_codebook_tsne(model, save=False, save_path="./"):
     embeddings = model.quantizer.embedding.weight.detach().cpu().numpy()
     print("Running t-SNE on codebook embeddings...")
-    # emb_2d = TSNE(n_components=2, perplexity=30, init='pca', random_state=42).fit_transform(embeddings)
-    emb_2d = TSNE(n_components=2, perplexity=5, init='pca', random_state=42).fit_transform(embeddings)
+    emb_2d = TSNE(n_components=2, perplexity=30, init='pca', random_state=42).fit_transform(embeddings)
 
     plt.figure(figsize=(7, 6))
     plt.scatter(emb_2d[:, 0], emb_2d[:, 1], s=12, alpha=0.7)
     plt.title("t-SNE of Codebook Embeddings")
     plt.xlabel("dim-1")
     plt.ylabel("dim-2")
-    plt.show()
+
+    if save:
+        plt.savefig(save_path)
+        plt.close()
+    else:
+        plt.show()
+
 
 def visualize_codebook_tsne3d(model):
     embeddings = model.quantizer.embedding.weight.detach().cpu().numpy()
     print("Running 3D t-SNE on codebook embeddings...")
-    # emb_2d = TSNE(n_components=2, perplexity=30, init='pca', random_state=42).fit_transform(embeddings)
-    emb_3d = TSNE(n_components=3, perplexity=10, init='pca', random_state=42).fit_transform(embeddings)
+    emb_3d = TSNE(n_components=3, perplexity=30, init='pca', random_state=42).fit_transform(embeddings)
 
     fig = plt.figure(figsize=(10, 8))
     ax = fig.add_subplot(111, projection='3d')
@@ -311,24 +322,67 @@ def visualize_codebook_tsne3d(model):
     ax.set_zlabel("dim-3")
     plt.show()
 
+def parse_args():
+    """
+    Parse command-line flags for VQ-VAE evaluation & visualization utilities.
+
+    Flags:
+    --eval : bool
+        Run model evaluation 
+    --codebook-usage : bool
+        Compute and visualize codebook index usage frequencies.
+    --codebook-emb : bool
+        Visualize codebook embeddings (e.g., t-SNE / 3D t-SNE).
+    --loss : bool
+        Plot training/validation loss curves loaded from the checkpoint.
+    --save : bool
+        Save generated figures to instead of displaying them.
+    --train : bool
+        Use train set instead of test set for evaluation
+
+    Returns:
+        argparse.Namespace: Parsed arguments with boolean attributes
+    """
+    parser = argparse.ArgumentParser(description="VQ-VAE model evaluation and visualization script")
+
+    parser.add_argument("--eval", action="store_true", help="Evaluate model and compute SSIM on test set")
+    parser.add_argument("--codebook-usage", action="store_true", help="Visualize codebook usage frequency")
+    parser.add_argument("--codebook-emb", action="store_true", help="Visualize codebook embedding space (t-SNE)")
+    parser.add_argument("--loss", action="store_true", help="Plot training and validation loss curves")
+    parser.add_argument("--save", action="store_true", help="Save plots instead of displaying them")
+    parser.add_argument("--train", action="store_true", help="Use train set instead of test set for evaluation")
+    
+
+    return parser.parse_args()
+
 
 # ============================================================
 # Entry Point
 # ============================================================
 if __name__ == "__main__":
 
+    args = parse_args()
+
     # Load Model and Test Data
     model = load_model(CHECKPOINT_PATH)
-    test_loader = get_dataloader("test", batch_size=BATCH_SIZE, workers=NUM_WORKERS, earlyStop=EARLY_STOP)
 
-    # Plot loss graph
-    # plot_loss_curves(CHECKPOINT_PATH) 
+    if args.train:
+        loader = get_dataloader("train", batch_size=BATCH_SIZE, workers=NUM_WORKERS, earlyStop=EARLY_STOP)
+    else:
+        loader = get_dataloader("test", batch_size=BATCH_SIZE, workers=NUM_WORKERS, earlyStop=EARLY_STOP)
 
-    # Evaluate model + visualise reconstructions
-    # evaluate_model(model, test_loader)
+    # Loss plot
+    if args.loss:
+        plot_loss_curves(CHECKPOINT_PATH, save=args.save)
+    
+    # Evaluation
+    if args.eval:
+        evaluate_model(model, loader, save=args.save)
+    
+    # Codebook usage
+    if args.codebook_usage:
+        visualise_codebook_usage(model, loader, save=args.save)
 
-    # visualise_codebook_usage(model, test_loader)
-
-    # visualize_input_latent_output(model, test_loader)
-
-    visualize_codebook_tsne(model)
+    # Codebook embed
+    if args.codebook_emb:
+        visualize_codebook_tsne(model, save=args.save)
