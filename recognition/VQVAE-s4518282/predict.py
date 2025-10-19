@@ -6,7 +6,9 @@ Handles all analysis of VQ-VAE model.
 Handles:
 - Plotting loss
 - Calculate SSIM scores on test set
-- ...
+- Plot codebook embeddings
+- Plot codebook usage histograms 
+- Show latent index mapping
 
 Author: Youngsu Choi
 """
@@ -290,6 +292,15 @@ def visualize_input_latent_output(model, test_loader):
 # Visualize Codebook Embeddings (t-SNE)
 # ============================================================
 def visualize_codebook_tsne(model, save=False, save_path="./"):
+    """
+    Given a fully trained VQ-VAE model, we plot the embeddings in a
+    2-D space using t-SNE.
+
+    Args:
+        model (nn.Module): The fully trained VQ-VAE model
+        save (bool): If true, saves the plot instead of showing
+        save-path (str): Save path when saving plot
+    """
     embeddings = model.quantizer.embedding.weight.detach().cpu().numpy()
     print("Running t-SNE on codebook embeddings...")
     emb_2d = TSNE(n_components=2, perplexity=30, init='pca', random_state=42).fit_transform(embeddings)
@@ -306,8 +317,16 @@ def visualize_codebook_tsne(model, save=False, save_path="./"):
     else:
         plt.show()
 
-
 def visualize_codebook_tsne3d(model):
+    """
+    Given a fully trained VQ-VAE model, we plot the embeddings in a
+    3-D space using t-SNE.
+
+    Args:
+        model (nn.Module): The fully trained VQ-VAE model
+        save (bool): If true, saves the plot instead of showing
+        save-path (str): Save path when saving plot
+    """
     embeddings = model.quantizer.embedding.weight.detach().cpu().numpy()
     print("Running 3D t-SNE on codebook embeddings...")
     emb_3d = TSNE(n_components=3, perplexity=30, init='pca', random_state=42).fit_transform(embeddings)
