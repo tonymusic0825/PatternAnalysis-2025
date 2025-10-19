@@ -204,6 +204,14 @@ def visualise_codebook_usage(model, dataloader, save=False, save_path="./"):
             _, _, indices = model.quantizer(z_e)
             flat_idx = indices.view(-1)
             usage.scatter_add_(0, flat_idx, torch.ones_like(flat_idx, dtype=torch.float))
+    
+    # Print the top 5 codes and their usagees
+    top_k_counts, top_k_indices = torch.topk(usage, k=5)
+    print("\n--- Top 5 Codebook Usages ---")
+    for i in range(5):
+        index = top_k_indices[i].item()
+        count = int(top_k_counts[i].item()) # Convert to integer as it's a count
+        print(f"Rank {i+1}: Index {index}, Count {count}")
 
     # Plot
     usage = usage.cpu().numpy()
@@ -220,6 +228,55 @@ def visualise_codebook_usage(model, dataloader, save=False, save_path="./"):
     else:
         plt.show()
 
+# ============================================================
+# Visualize Usage of Latent Space Codebook
+# ============================================================
+def visualize_input_latent_output(model, test_loader):
+    """
+    Generates a original -> latent index map -> reconstruction view
+    plot of a single test sample.
+
+    Args:
+        model (nn.Module): Fully trained / loaded model
+        dataloader (torch.utils.data.DataLoader): Loaded dataloader (train/val/test)
+    """
+
+    x = next(iter(test_loader)).to(DEVICE)
+    with torch.no_grad():
+        z_e = model.encoder(x)
+        z_e = model.pre_quant_conv(z_e)
+        z_q, _, indices = model.quantizer(z_e)
+        z_q = model.post_quant_conv(z_q)
+        recon = model.decoder(z_q)
+
+    # Pick the first sample
+    img_in = x[0, 0].cpu()
+    img_latent = indices[0].cpu()
+    img_out = recon[0, 0].cpu()
+
+    # Display 3 columns
+    plt.figure(figsize=(12, 4))
+
+    # Original
+    plt.subplot(1, 3, 1)
+    plt.imshow(img_in, cmap="plasma", vmin=-1, vmax=1)
+    plt.title("Original Image")
+    plt.axis("off")
+
+    # Latent index map
+    plt.subplot(1, 3, 2)
+    plt.imshow(img_latent, cmap="tab20")
+    plt.title("Discrete Latent Index Map")
+    plt.axis("off")
+
+    # Reconstruction
+    plt.subplot(1, 3, 3)
+    plt.imshow(img_out, cmap="plasma", vmin=-1, vmax=1)
+    plt.title("Reconstructed Output")
+    plt.axis("off")
+
+    plt.tight_layout()
+    plt.show()
 
 # ============================================================
 # Entry Point
@@ -236,4 +293,6 @@ if __name__ == "__main__":
     # Evaluate model + visualise reconstructions
     # evaluate_model(model, test_loader)
 
-    visualise_codebook_usage(model, test_loader)
+    # visualise_codebook_usage(model, test_loader)
+
+    visualize_input_latent_output(model, test_loader)
