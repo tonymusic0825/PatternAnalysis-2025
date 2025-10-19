@@ -15,6 +15,7 @@ import torch
 import matplotlib.pyplot as plt
 from torchmetrics.functional import structural_similarity_index_measure as ssim
 from tqdm import tqdm
+from sklearn.manifold import TSNE
 
 from config import *
 from dataset import get_dataloader
@@ -279,6 +280,39 @@ def visualize_input_latent_output(model, test_loader):
     plt.show()
 
 # ============================================================
+# Visualize Codebook Embeddings (t-SNE)
+# ============================================================
+def visualize_codebook_tsne(model):
+    embeddings = model.quantizer.embedding.weight.detach().cpu().numpy()
+    print("Running t-SNE on codebook embeddings...")
+    # emb_2d = TSNE(n_components=2, perplexity=30, init='pca', random_state=42).fit_transform(embeddings)
+    emb_2d = TSNE(n_components=2, perplexity=5, init='pca', random_state=42).fit_transform(embeddings)
+
+    plt.figure(figsize=(7, 6))
+    plt.scatter(emb_2d[:, 0], emb_2d[:, 1], s=12, alpha=0.7)
+    plt.title("t-SNE of Codebook Embeddings")
+    plt.xlabel("dim-1")
+    plt.ylabel("dim-2")
+    plt.show()
+
+def visualize_codebook_tsne3d(model):
+    embeddings = model.quantizer.embedding.weight.detach().cpu().numpy()
+    print("Running 3D t-SNE on codebook embeddings...")
+    # emb_2d = TSNE(n_components=2, perplexity=30, init='pca', random_state=42).fit_transform(embeddings)
+    emb_3d = TSNE(n_components=3, perplexity=10, init='pca', random_state=42).fit_transform(embeddings)
+
+    fig = plt.figure(figsize=(10, 8))
+    ax = fig.add_subplot(111, projection='3d')
+    ax.scatter(emb_3d[:, 0], emb_3d[:, 1], emb_3d[:, 2], s=12, alpha=0.7)
+
+    plt.title("t-SNE of Codebook Embeddings")
+    plt.xlabel("dim-1")
+    plt.ylabel("dim-2")
+    ax.set_zlabel("dim-3")
+    plt.show()
+
+
+# ============================================================
 # Entry Point
 # ============================================================
 if __name__ == "__main__":
@@ -295,4 +329,6 @@ if __name__ == "__main__":
 
     # visualise_codebook_usage(model, test_loader)
 
-    visualize_input_latent_output(model, test_loader)
+    # visualize_input_latent_output(model, test_loader)
+
+    visualize_codebook_tsne(model)
