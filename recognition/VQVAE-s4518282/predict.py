@@ -43,6 +43,40 @@ def load_model(checkpoint_path):
 
     return model
 
+# ============================================================
+# Plot loss curves
+# ============================================================
+def plot_loss_curves(checkpoint_path, save=False, save_path="loss.png"):
+    """
+    Given a checkpoint path, loads loss histories (train + val) and plots it.
+
+    Args:
+        checkpoint_path (str): Path to model checkpoint
+        save (bool): If True, saves the plot to save_path rather than showing it
+        save_path (str): Path to save
+    """
+    # Load data
+    data = torch.load(checkpoint_path, weights_only=True)
+    train_loss = data["train_loss_history"]
+    val_loss = data["val_loss_history"]
+
+    # Plot
+    plt.figure(figsize=(8, 5))
+    plt.plot(train_loss, label="Train Loss")
+    plt.plot(val_loss, label="Validation Loss")
+    plt.xlabel("Epoch")
+    plt.ylabel("Total Loss")
+    plt.title("VQVAE Training/Validation Loss")
+    plt.legend()
+    plt.tight_layout()
+    
+    if save:
+        plt.savefig(save_path)
+        plt.close()
+    else:
+        plt.show()
+
+
 
 # ============================================================
 # Entry Point
@@ -52,3 +86,6 @@ if __name__ == "__main__":
     # Load Model and Test Data
     model = load_model(CHECKPOINT_PATH)
     test_loader = get_dataloader("train", batch_size=BATCH_SIZE, workers=NUM_WORKERS, earlyStop=EARLY_STOP)
+
+    # Plot loss graph
+    # plot_loss_curves(CHECKPOINT_PATH) 
