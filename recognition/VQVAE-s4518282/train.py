@@ -111,12 +111,3 @@ for epoch in range(1, EPOCHS + 1):
             "val_loss_history": val_loss_history,
         }, ckpt_path)
         print(f"Saved checkpoint: {ckpt_path}\n")
-
-# Save final oss history separately
-# Still have loss history if we break early
-torch.save({
-    "train_loss_history": train_loss_history,
-    "val_loss_history": val_loss_history,
-}, os.path.join(SAVE_DIR, "loss_history.pt"))
-
-print("Training complete! Loss history saved.")

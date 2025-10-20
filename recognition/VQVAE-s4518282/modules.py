@@ -199,6 +199,7 @@ class Quantizer(nn.Module):
     Vector quantization layer for VQ-VAE.
     Converts continuous encoder outputs to discrete embeddings.
 
+    Inspired By:
     REF: https://github.com/explainingai-code/VQVAE-Pytorch/blob/main/model/quantizer.py 
     """
     def __init__(self, embed_num=512, embed_dim=256, beta=0.25):

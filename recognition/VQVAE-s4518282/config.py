@@ -1,7 +1,7 @@
 """
 config.py
 ---------
-Configuration file for hyperparameters
+Configuration file for training and predictions
 
 Author: Youngsu Choi
 """
@@ -41,4 +41,4 @@ os.makedirs(SAVE_DIR, exist_ok=True)
 
 # For testing only
 CHECKPOINT_PARENT = "checkpoints/"
-CHECKPOINT_PATH = "checkpoints/vqvae_epoch019.pt"
+CHECKPOINT_PATH = "checkpoints/vqvae_epoch019.pt" # Specifically for certain model save
